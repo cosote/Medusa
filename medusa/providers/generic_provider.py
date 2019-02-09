@@ -153,6 +153,27 @@ class GenericProvider(object):
                     log.info('Saved {result} to {location}',
                              {'result': result.name, 'location': filename})
                     return True
+			
+			# try to extract magnet hash
+            m = re.search(r'\b([A-F0-9]{40})\b', url, re.IGNORECASE)
+            if m:
+                url = 'magnet:?xt=urn:btih:' + m.group(1)
+                log.debug(u'Converted link to magnet: {1}'.format(url))
+
+            if url.startswith('magnet'):
+                # try to opening in browser
+                try:
+                    import webbrowser
+                    log.info(u'Opening magnet link in browser: {0}'.format(url))
+                    try:
+                        return webbrowser.open(url, 2, 1)
+                    except Exception:
+                        try:
+                            return webbrowser.open(url, 1, 1)
+                        except Exception:
+                            log.error(u"Unable to launch a browser")
+                except ImportError:
+                    log.warning(u"Unable to load the webbrowser module, cannot launch the browser.")
 
         log.warning('Failed to download any results for {result}',
                     {'result': result.name})
