@@ -158,7 +158,7 @@ class GenericProvider(object):
             m = re.search(r'\b([A-F0-9]{40})\b', url, re.IGNORECASE)
             if m:
                 url = 'magnet:?xt=urn:btih:' + m.group(1)
-                log.debug(u'Converted link to magnet: {1}'.format(url))
+                log.debug(u'Converted link to magnet: {0}'.format(url))
 
             if url.startswith('magnet'):
                 # try to opening in browser
