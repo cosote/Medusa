@@ -30,8 +30,11 @@ from builtins import str
 
 from medusa import db, logger
 from medusa.helper.exceptions import ex
+from medusa.helpers import get_absolute_number_from_season_and_episode
 from medusa.indexers.indexer_api import indexerApi
 from medusa.scene_exceptions import safe_session
+
+from six import viewitems
 
 
 def get_scene_numbering(series_obj, season, episode, fallback_to_xem=True):
@@ -48,9 +51,6 @@ def get_scene_numbering(series_obj, season, episode, fallback_to_xem=True):
     :return: (int, int) a tuple with (season, episode)
     """
     if series_obj is None or season is None or episode is None:
-        return season, episode
-
-    if series_obj and not series_obj.is_scene:
         return season, episode
 
     result = find_scene_numbering(series_obj, season, episode)
@@ -93,9 +93,6 @@ def get_scene_absolute_numbering(series_obj, absolute_number, fallback_to_xem=Tr
     :return: (int, int) a tuple with (season, episode)
     """
     if series_obj is None or absolute_number is None:
-        return absolute_number
-
-    if series_obj and not series_obj.is_scene:
         return absolute_number
 
     result = find_scene_absolute_numbering(series_obj, absolute_number)
@@ -148,30 +145,32 @@ def get_indexer_numbering(series_obj, sceneSeason, sceneEpisode, fallback_to_xem
         return sceneSeason, sceneEpisode
 
 
-def get_indexer_absolute_numbering(series_obj, sceneAbsoluteNumber, fallback_to_xem=True, scene_season=None):
+def get_indexer_absolute_numbering(series_obj, scene_episode, fallback_to_xem=True, scene_season=None):
     """
-    Returns a tuple, (season, episode, absolute_number) with the TVDB absolute numbering for (sceneAbsoluteNumber)
+    Returns a tuple, (season, episode, absolute_number) with the TVDB absolute numbering for (scene_episode)
     (this works like the reverse of get_absolute_numbering)
     """
-    if series_obj is None or sceneAbsoluteNumber is None:
-        return sceneAbsoluteNumber
+    if scene_season is not None:
+        # Get the real absolute number
+        real_episode = get_absolute_number_from_season_and_episode(
+            series_obj, scene_season, scene_episode
+        )
+        scene_episode = real_episode or scene_episode
 
     main_db_con = db.DBConnection()
-    if scene_season is None:
-        rows = main_db_con.select(
-            'SELECT absolute_number FROM scene_numbering WHERE indexer = ? and indexer_id = ? and scene_absolute_number = ?',
-            [series_obj.indexer, series_obj.series_id, sceneAbsoluteNumber])
-    else:
-        rows = main_db_con.select(
-            'SELECT absolute_number FROM scene_numbering WHERE indexer = ? and indexer_id = ? and scene_absolute_number = ? and scene_season = ?',
-            [series_obj.indexer, series_obj.series_id, sceneAbsoluteNumber, scene_season])
+    rows = main_db_con.select(
+        'SELECT absolute_number FROM scene_numbering '
+        'WHERE indexer = ? and indexer_id = ? and scene_absolute_number = ?',
+        [series_obj.indexer, series_obj.series_id, scene_episode])
 
     if rows:
         return int(rows[0]['absolute_number'])
-    else:
-        if fallback_to_xem:
-            return get_indexer_absolute_numbering_for_xem(series_obj, sceneAbsoluteNumber, scene_season)
-        return sceneAbsoluteNumber
+
+    if fallback_to_xem:
+        a = get_indexer_absolute_numbering_for_xem(series_obj, scene_episode)
+        return a or scene_episode
+
+    return scene_episode
 
 
 def set_scene_numbering(series_obj, season=None, episode=None,  # pylint:disable=too-many-arguments
@@ -290,39 +289,20 @@ def get_indexer_numbering_for_xem(series_obj, sceneSeason, sceneEpisode):
     return sceneSeason, sceneEpisode
 
 
-def get_indexer_absolute_numbering_for_xem(series_obj, sceneAbsoluteNumber, scene_season=None):
-    """
-    Reverse of find_xem_numbering: lookup a tvdb season and episode using scene numbering
-
-    :param indexer_id: int
-    :param sceneAbsoluteNumber: int
-    :return: int
-    """
-    if series_obj is None or sceneAbsoluteNumber is None:
-        return sceneAbsoluteNumber
-
+def get_indexer_absolute_numbering_for_xem(series_obj, scene_episode):
+    """Reverse of find_xem_numbering: lookup a tvdb season and episode using scene numbering."""
     xem_refresh(series_obj)
 
     main_db_con = db.DBConnection()
-    if scene_season is None:
-        rows = main_db_con.select(
-            'SELECT absolute_number '
-            'FROM tv_episodes '
-            'WHERE indexer = ? AND showid = ? '
-            'AND scene_absolute_number = ?',
-            [series_obj.indexer, series_obj.series_id, sceneAbsoluteNumber])
-    else:
-        rows = main_db_con.select(
-            'SELECT absolute_number '
-            'FROM tv_episodes '
-            'WHERE indexer = ? '
-            'AND showid = ? AND scene_absolute_number = ? and scene_season = ?',
-            [series_obj.indexer, series_obj.series_id, sceneAbsoluteNumber, scene_season])
+    rows = main_db_con.select(
+        'SELECT absolute_number '
+        'FROM tv_episodes '
+        'WHERE indexer = ? AND showid = ? '
+        'AND scene_absolute_number = ?',
+        [series_obj.indexer, series_obj.series_id, scene_episode])
 
     if rows:
         return int(rows[0]['absolute_number'])
-
-    return sceneAbsoluteNumber
 
 
 def get_scene_numbering_for_show(series_obj):
@@ -647,3 +627,29 @@ def fix_xem_numbering(series_obj):  # pylint:disable=too-many-locals, too-many-b
     if cl:
         main_db_con = db.DBConnection()
         main_db_con.mass_action(cl)
+
+
+def numbering_tuple_to_dict(values, left_desc='source', right_desc='destination', level_2_left='season', level_2_right='episode'):
+    """
+    Convert a dictionary with tuple to tuple (key/value) mapping to a json structure.
+
+    For each key/value pair, create a new dictionary and move key/value to a new object,
+    with left_desc and right_desc as its keys.
+
+    This method is required because the swagger spec does not support describing the dynamic key/value mapping.
+    The json schema supports additionalProperties (which is required to document this). But Swagger itself has limited support for it.
+    https://support.reprezen.com/support/solutions/articles/6000162892-support-for-additionalproperties-in-swagger-2-0-schemas.
+
+    For example the values {(a, b): (c: d)} will be transformed to:
+    [{"source": {"season": a, "episode": b}, "destination": {"season": c, "episode": d}}]
+
+    :param values: Dict with double tuple mapping. For example: (src season, src episode): (dest season, dest episode).
+    :param left_desc: The key description used for the orginal "key" value.
+    :param right_desc: The key description used for the original "value" value.
+    :param level_2_left: When passing {tuple: tuple}, it's used to map the value of the first tuple's value.
+    :param level_2_right: When passing {tuple: tuple}, it's used to map the value of the second tuple's value.
+    :return: List of dictionaries with dedicated keys for source and destination.
+    """
+    return [{left_desc: {level_2_left: src[0], level_2_right: src[1]},
+             right_desc: {level_2_left: dest[0], level_2_right: dest[1]}}
+            for src, dest in viewitems(values)]

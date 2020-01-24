@@ -1,6 +1,8 @@
 # coding=utf-8
 """Configuration for pytest."""
 from __future__ import unicode_literals
+
+import json
 import logging
 import os
 from logging.handlers import RotatingFileHandler
@@ -109,13 +111,6 @@ def tvshow(create_tvshow):
 
 
 @pytest.fixture
-def tvepisode(tvshow, create_tvepisode):
-    return create_tvepisode(series=tvshow, season=3, episode=4, indexer=34, file_size=1122334455,
-                            name='Episode Title', status=DOWNLOADED, quality=Quality.FULLHDBLURAY,
-                            release_group='SuperGroup')
-
-
-@pytest.fixture
 def parse_method(create_tvshow):
     def parse(self, name):
         """Parse the string and add a TVShow object with the parsed series name."""
@@ -163,10 +158,10 @@ def create_tvepisode(monkeypatch):
 
 @pytest.fixture
 def create_search_result(monkeypatch):
-    def create(provider, series, episodes, **kwargs):
-        target = provider.get_result(episodes=episodes)
-        target.provider = provider
-        target.series = series
+    def create(provider, series, episode, **kwargs):
+        target = provider.get_result(series=series)
+        target.actual_season = episode.season
+        target.actual_episodes = [episode.episode]
         return _patch_object(monkeypatch, target, **kwargs)
 
     return create
@@ -299,16 +294,17 @@ def github_repo():
 
 @pytest.fixture
 def create_github_issue(monkeypatch):
-    def create(title, body=None, locked=False, number=1, **kwargs):
+    def create(title, body=None, locked=False, number=1, labels=[], **kwargs):
         raw_data = {
             'title': title,
             'body': body,
             'number': number,
-            'locked': locked
+            'locked': locked,
+            'labels': [dict(name=label) for label in labels]
         }
         raw_data.update(kwargs)
         # Set url to a unique value, because that's how issues are compared
-        raw_data['url'] = text_type(hash(tuple(raw_data.values())))
+        raw_data['url'] = text_type(hash(json.dumps(raw_data)))
         return Issue(Mock(), Mock(), raw_data, True)
 
     return create

@@ -54,7 +54,6 @@ from medusa.helper.common import (
     try_int,
 )
 from medusa.helper.exceptions import (
-    AnidbAdbaConnectionException,
     CantRefreshShowException,
     CantRemoveShowException,
     EpisodeDeletedException,
@@ -64,9 +63,9 @@ from medusa.helper.exceptions import (
     ShowNotFoundException,
     ex,
 )
-from medusa.helpers.anidb import get_release_groups_for_anime, short_group_names
+from medusa.helpers.anidb import short_group_names
 from medusa.helpers.externals import get_externals, load_externals_from_db
-from medusa.helpers.utils import safe_get
+from medusa.helpers.utils import dict_to_array, safe_get, to_camel_case
 from medusa.imdb import Imdb
 from medusa.indexers.indexer_api import indexerApi
 from medusa.indexers.indexer_config import (
@@ -98,8 +97,13 @@ from medusa.name_parser.parser import (
     NameParser,
 )
 from medusa.sbdatetime import sbdatetime
-from medusa.scene_exceptions import get_scene_exceptions, update_scene_exceptions
-from medusa.scene_numbering import get_xem_numbering_for_show
+from medusa.scene_exceptions import get_all_scene_exceptions, get_scene_exceptions, update_scene_exceptions
+from medusa.scene_numbering import (
+    get_scene_absolute_numbering_for_show, get_scene_numbering_for_show,
+    get_xem_absolute_numbering_for_show, get_xem_numbering_for_show,
+    numbering_tuple_to_dict,
+)
+from medusa.search import FORCED_SEARCH
 from medusa.show.show import Show
 from medusa.subtitles import (
     code_from_code,
@@ -582,7 +586,7 @@ class Series(TV):
     @property
     def banner(self):
         """Return banner path."""
-        img_type = image_cache.POSTER
+        img_type = image_cache.BANNER
         return image_cache.get_artwork(img_type, self)
 
     @property
@@ -601,6 +605,26 @@ class Series(TV):
     def xem_numbering(self):
         """Return series episode xem numbering."""
         return get_xem_numbering_for_show(self)
+
+    @property
+    def xem_absolute_numbering(self):
+        """Return series xem absolute numbering."""
+        return get_xem_absolute_numbering_for_show(self)
+
+    @property
+    def scene_absolute_numbering(self):
+        """Return series scene absolute numbering."""
+        return get_scene_absolute_numbering_for_show(self)
+
+    @property
+    def all_scene_exceptions(self):
+        """Return series season scene exceptions."""
+        return {season: list(exception_name) for season, exception_name in iteritems(get_all_scene_exceptions(self))}
+
+    @property
+    def scene_numbering(self):
+        """Return series scene numbering."""
+        return get_scene_numbering_for_show(self)
 
     @property
     def release_ignore_words(self):
@@ -627,13 +651,13 @@ class Series(TV):
         return bw_list.blacklist
 
     @blacklist.setter
-    def blacklist(self, value):
+    def blacklist(self, group_names):
         """
         Set the anime's blacklisted release groups.
 
-        :param value: A list of blacklist release groups.
+        :param group_names: A list of blacklist release group names.
         """
-        self.release_groups.set_black_keywords(short_group_names([v['name'] for v in value]))
+        self.release_groups.set_black_keywords(short_group_names(group_names))
 
     @property
     def whitelist(self):
@@ -642,19 +666,22 @@ class Series(TV):
         return bw_list.whitelist
 
     @whitelist.setter
-    def whitelist(self, value):
+    def whitelist(self, group_names):
         """
         Set the anime's whitelisted release groups.
 
-        :param value: A list of whitelist release groups.
+        :param group_names: A list of whitelist release group names.
         """
-        self.release_groups.set_white_keywords(short_group_names([v['name'] for v in value]))
+        self.release_groups.set_white_keywords(short_group_names(group_names))
 
     @staticmethod
-    def normalize_status(series_status):
+    def normalize_status(status):
         """Return a normalized status given current indexer status."""
-        default_status = 'Unknown'
-        return STATUS_MAP.get(series_status.lower(), default_status) if series_status else default_status
+        for medusa_status, indexer_mappings in viewitems(STATUS_MAP):
+            if status.lower() in indexer_mappings:
+                return medusa_status
+
+        return 'Unknown'
 
     def flush_episodes(self):
         """Delete references to anything that's not in the internal lists."""
@@ -964,7 +991,7 @@ class Series(TV):
         :param show_only:
         :type show_only: bool
         """
-        if not self.is_location_valid():
+        if not app.CREATE_MISSING_SHOW_DIRS and not self.is_location_valid():
             log.warning("{id}: Show directory doesn't exist, skipping NFO generation",
                         {'id': self.series_id})
             return
@@ -1007,8 +1034,8 @@ class Series(TV):
 
     def update_metadata(self):
         """Update show metadata files."""
-        if not self.is_location_valid():
-            log.warning(u"{id}: Show directory doesn't exist, skipping NFO generation",
+        if not app.CREATE_MISSING_SHOW_DIRS and not self.is_location_valid():
+            log.warning(u"{id}: Show directory doesn't exist, skipping NFO update",
                         {'id': self.series_id})
             return
 
@@ -1029,7 +1056,7 @@ class Series(TV):
 
     def load_episodes_from_dir(self):
         """Find all media files in the show folder and create episodes for as many as possible."""
-        if not self.is_location_valid():
+        if not app.CREATE_MISSING_SHOW_DIRS and not self.is_location_valid():
             log.warning(u"{id}: Show directory doesn't exist, not loading episodes from disk",
                         {'id': self.series_id})
             return
@@ -1489,14 +1516,13 @@ class Series(TV):
             if not self.imdb_id:
                 self.imdb_id = sql_results[0]['imdb_id']
 
-            self.release_groups = BlackAndWhiteList(self)
-
             self.plot = sql_results[0]['plot']
+            self.airdate_offset = int(sql_results[0]['airdate_offset'] or 0)
+
+            self.release_groups = BlackAndWhiteList(self)
 
             # Load external id's from indexer_mappings table.
             self.externals = load_externals_from_db(self.indexer, self.series_id)
-
-            self.airdate_offset = int(sql_results[0]['airdate_offset'])
 
         # Get IMDb_info from database
         main_db_con = db.DBConnection()
@@ -1925,6 +1951,33 @@ class Series(TV):
         for episode in episodes:
             episode.download_subtitles()
 
+    @property
+    def show_queue_status(self):
+        """Return a status the show checking the queue scheduler if there is currently an action queued or active."""
+        return [
+            {'action': 'isBeingAdded',
+             'active': app.show_queue_scheduler.action.isBeingAdded(self),
+             'message': 'This show is in the process of being downloaded - the info below is incomplete'},
+            {'action': 'isBeingUpdated',
+             'active': app.show_queue_scheduler.action.isBeingUpdated(self),
+             'message': 'The information on this page is in the process of being updated'},
+            {'action': 'isBeingRefreshed',
+             'active': app.show_queue_scheduler.action.isBeingRefreshed(self),
+             'message': 'The episodes below are currently being refreshed from disk'},
+            {'action': 'isBeingSubtitled',
+             'active': app.show_queue_scheduler.action.isBeingSubtitled(self),
+             'message': 'Currently downloading subtitles for this show'},
+            {'action': 'isInRefreshQueue',
+             'active': app.show_queue_scheduler.action.isInRefreshQueue(self),
+             'message': 'This show is queued to be refreshed'},
+            {'action': 'isInUpdateQueue',
+             'active': app.show_queue_scheduler.action.isInUpdateQueue(self),
+             'message': 'This show is queued and awaiting an update'},
+            {'action': 'isInSubtitleQueue',
+             'active': app.show_queue_scheduler.action.isInSubtitleQueue(self),
+             'message': 'This show is queued and awaiting subtitles download'},
+        ]
+
     def save_to_db(self):
         """Save to database."""
         if not self.dirty:
@@ -1957,6 +2010,8 @@ class Series(TV):
                           'last_update_indexer': self.last_update_indexer,
                           'rls_ignore_words': self.rls_ignore_words,
                           'rls_require_words': self.rls_require_words,
+                          'rls_ignore_exclude': self.rls_ignore_exclude,
+                          'rls_require_exclude': self.rls_require_exclude,
                           'default_ep_status': self.default_ep_status,
                           'plot': self.plot,
                           'airdate_offset': self.airdate_offset}
@@ -2033,15 +2088,12 @@ class Series(TV):
         to_return += u'anime: {0}\n'.format(self.is_anime)
         return to_return
 
-    def to_json(self, detailed=True, fetch=False):
+    def to_json(self, detailed=False, episodes=False):
         """
         Return JSON representation.
 
         :param detailed: Append seasons & episodes data as well
-        :param fetch: Fetch and append external data (for example AniDB release groups)
         """
-        bw_list = self.release_groups or BlackAndWhiteList(self)
-
         data = {}
         data['id'] = {}
         data['id'][self.indexer_name] = self.series_id
@@ -2053,13 +2105,16 @@ class Series(TV):
         data['network'] = self.network  # e.g. CBS
         data['type'] = self.classification  # e.g. Scripted
         data['status'] = self.status  # e.g. Continuing
+        data['seasonCount'] = dict_to_array(self.get_all_seasons(), key='season', value='episodeCount')
         data['airs'] = self.airs  # e.g. Thursday 8:00 PM
+        data['airsFormatValid'] = network_timezones.test_timeformat(self.airs)
         data['language'] = self.lang
         data['showType'] = self.show_type  # e.g. anime, sport, series
-        data['akas'] = self.imdb_akas
+        data['imdbInfo'] = {to_camel_case(k): v for k, v in viewitems(self.imdb_info)}
         data['year'] = {}
         data['year']['start'] = self.imdb_year or self.start_year
         data['nextAirDate'] = self.next_airdate.isoformat() if self.next_airdate else None
+        data['lastUpdate'] = datetime.date.fromordinal(self.last_update_indexer).isoformat()
         data['runtime'] = self.imdb_runtime or self.runtime
         data['genres'] = self.genres
         data['rating'] = {}
@@ -2073,10 +2128,11 @@ class Series(TV):
         data['cache']['poster'] = self.poster
         data['cache']['banner'] = self.banner
         data['countries'] = self.countries  # e.g. ['ITALY', 'FRANCE']
-        data['country_codes'] = self.imdb_countries  # e.g. ['it', 'fr']
+        data['countryCodes'] = self.imdb_countries  # e.g. ['it', 'fr']
         data['plot'] = self.plot or self.imdb_plot
         data['config'] = {}
         data['config']['location'] = self.location
+        data['config']['locationValid'] = self.is_location_valid()
         data['config']['qualities'] = {}
         data['config']['qualities']['allowed'] = self.qualities_allowed
         data['config']['qualities']['preferred'] = self.qualities_preferred
@@ -2100,31 +2156,33 @@ class Series(TV):
 
         # These are for now considered anime-only options
         if self.is_anime:
+            bw_list = self.release_groups or BlackAndWhiteList(self)
             data['config']['release']['blacklist'] = bw_list.blacklist
             data['config']['release']['whitelist'] = bw_list.whitelist
 
-        # Fetch data from external sources
-        if fetch:
-            # These are for now considered anime-only options, as they query anidb for available release groups.
-            if self.is_anime:
-                try:
-                    data['config']['release']['allgroups'] = get_release_groups_for_anime(self.name)
-                except AnidbAdbaConnectionException as error:
-                    data['config']['release']['allgroups'] = []
-                    log.warning(
-                        'An anidb adba exception occurred when attempting to get the release groups for the show {show}'
-                        '\nError: {error}',
-                        {'show': self.name, 'error': error}
-                    )
-
         if detailed:
-            episodes = self.get_all_episodes()
-            data['seasons'] = [list(v) for _, v in
-                               groupby([ep.to_json() for ep in episodes], lambda item: item['season'])]
-            data['episodeCount'] = len(episodes)
-            last_episode = episodes[-1] if episodes else None
+            data['size'] = self.size
+            data['showQueueStatus'] = self.show_queue_status
+            data['xemNumbering'] = numbering_tuple_to_dict(self.xem_numbering)
+            data['sceneAbsoluteNumbering'] = dict_to_array(self.scene_absolute_numbering, key='absolute', value='sceneAbsolute')
+            data['allSceneExceptions'] = dict_to_array(self.all_scene_exceptions, key='season', value='exceptions')
+            if self.is_scene:
+                data['xemAbsoluteNumbering'] = dict_to_array(self.xem_absolute_numbering, key='absolute', value='sceneAbsolute')
+                data['sceneNumbering'] = numbering_tuple_to_dict(self.scene_numbering)
+            else:
+                data['xemAbsoluteNumbering'] = []
+                data['sceneNumbering'] = []
+
+        if episodes:
+            all_episodes = self.get_all_episodes()
+            data['episodeCount'] = len(all_episodes)
+            last_episode = all_episodes[-1] if all_episodes else None
             if self.status == 'Ended' and last_episode and last_episode.airdate:
                 data['year']['end'] = last_episode.airdate.year
+
+            data['seasons'] = [{'episodes': list(v), 'season': season}
+                               for season, v in
+                               groupby([ep.to_json() for ep in all_episodes], lambda item: item['season'])]
 
         return data
 
@@ -2204,7 +2262,7 @@ class Series(TV):
         return ', '.join([Quality.qualityStrings[quality] for quality in qualities or []
                           if quality and quality in Quality.qualityStrings]) or 'None'
 
-    def want_episode(self, season, episode, quality, forced_search=False,
+    def want_episode(self, season, episode, quality,
                      download_current_quality=False, search_type=None):
         """Whether or not the episode with the specified quality is wanted.
 
@@ -2223,6 +2281,8 @@ class Series(TV):
         :return:
         :rtype: bool
         """
+        forced_search = True if search_type == FORCED_SEARCH else False
+
         # if the quality isn't one we want under any circumstances then just say no
         allowed_qualities, preferred_qualities = self.current_qualities
         log.debug(
@@ -2300,6 +2360,49 @@ class Series(TV):
             }
         )
         return should_replace
+
+    def want_episodes(self, season, episodes, quality,
+                      download_current_quality=False, search_type=None):
+        """Whether one or more episodes are wanted based on their quality and status.
+
+        Args:
+            season (int): Season number of the episode(s)
+            episodes (int): Episode number(s)
+            quality (int): Quality of the episode(s)
+            download_current_quality (bool, optional): Accept the same quality. Defaults to False.
+            search_type (SearchType, optional): The type used to search. Defaults to None.
+
+        Returns:
+            bool: Whether the episode(s) are wanted.
+
+        """
+        wanted_episodes = [
+            self.want_episode(season, episode, quality,
+                              download_current_quality=download_current_quality,
+                              search_type=search_type)
+            for episode in episodes
+        ]
+
+        if all(wanted_episodes):
+            log.info('Episodes {eps} of season {sea} are needed with this quality for {show}',
+                     {'eps': episodes, 'sea': season, 'show': self.name})
+            return True
+
+        elif not any(wanted_episodes):
+            log.debug('No episodes {eps} of season {sea} are needed with this quality for {show}',
+                      {'eps': episodes, 'sea': season, 'show': self.name})
+            return False
+        else:
+            # If there are 2 candidates and only one is wanted it
+            # is likely a single episode released as multi episode
+            if len(wanted_episodes) == 2:
+                log.info('Only 1 of episodes {eps} of season {sea} are needed with this quality for {show}',
+                         {'eps': episodes, 'sea': season, 'show': self.name})
+                return True
+            else:
+                log.debug(u'Only some episodes {eps} of season {sea} are needed with this quality for {show}',
+                          {'eps': episodes, 'sea': season, 'show': self.name})
+                return False
 
     def get_overview(self, ep_status, ep_quality, backlog_mode=False, manually_searched=False):
         """Get the Overview status from the Episode status.
@@ -2400,6 +2503,51 @@ class Series(TV):
             log.debug(u'No DOWNLOADED episodes for show ID: {show}',
                       {'show': self.name})
             return False
+
+    def get_wanted_segments(self, from_date=None):
+        """Get episodes that should be backlog searched."""
+        wanted = {}
+        if self.paused:
+            log.debug(u'Skipping backlog for {0} because the show is paused', self.name)
+            return wanted
+
+        log.debug(u'Seeing if we need anything from {0}', self.name)
+
+        from_date = from_date or datetime.date.fromordinal(1)
+
+        con = db.DBConnection()
+        sql_results = con.select(
+            'SELECT status, quality, season, episode, manually_searched '
+            'FROM tv_episodes '
+            'WHERE airdate > ?'
+            ' AND indexer = ? '
+            ' AND showid = ?',
+            [from_date.toordinal(), self.indexer, self.series_id]
+        )
+
+        # check through the list of statuses to see if we want any
+        for episode in sql_results:
+            cur_status, cur_quality = int(episode['status'] or UNSET), int(episode['quality'] or Quality.NA)
+            should_search, should_search_reason = Quality.should_search(
+                cur_status, cur_quality, self, episode['manually_searched']
+            )
+            if not should_search:
+                continue
+            log.debug(
+                u'Found needed backlog episodes for: {show} {ep}. Reason: {reason}', {
+                    'show': self.name,
+                    'ep': episode_num(episode['season'], episode['episode']),
+                    'reason': should_search_reason,
+                }
+            )
+            ep_obj = self.get_episode(episode['season'], episode['episode'])
+
+            if ep_obj.season not in wanted:
+                wanted[ep_obj.season] = [ep_obj]
+            else:
+                wanted[ep_obj.season].append(ep_obj)
+
+        return wanted
 
     def pause(self):
         """Pause the series."""

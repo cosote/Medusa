@@ -27,7 +27,7 @@ from requests import RequestException
 
 from simpleanidb import REQUEST_HOT
 
-from six import text_type
+from six import ensure_text, text_type
 
 from tornroutes import route
 
@@ -51,6 +51,14 @@ def json_response(result=True, message=None, redirect=None, params=None):
         'redirect': text_type(redirect or '').strip('/'),
         'params': params or [],
     })
+
+
+def decode_shows(names):
+    """Decode show names to UTF-8."""
+    return [
+        name.decode('utf-8') if not isinstance(name, text_type) else name
+        for name in names
+    ]
 
 
 @route('/addShows(/?.*)')
@@ -96,14 +104,9 @@ class HomeAddShows(Home):
         elif not isinstance(other_shows, list):
             other_shows = [other_shows]
 
-        other_shows = [
-            x.decode('utf-8') if not isinstance(x, text_type) else x
-            for x in other_shows
-        ]
-
+        other_shows = decode_shows(other_shows)
         provided_indexer_id = int(indexer_id or 0)
         provided_indexer_name = show_name
-
         provided_indexer = int(indexer or app.INDEXER_DEFAULT)
 
         return t.render(
@@ -391,6 +394,8 @@ class HomeAddShows(Home):
         elif not isinstance(other_shows, list):
             other_shows = [other_shows]
 
+        other_shows = decode_shows(other_shows)
+
         def finishAddShow():
             # if there are no extra shows then go home
             if not other_shows:
@@ -470,7 +475,7 @@ class HomeAddShows(Home):
                 log.error("Unable to create the folder {path}, can't add the show",
                           {'path': show_dir})
                 ui.notifications.error('Unable to add show',
-                                       'Unable to create the folder {path}, can\'t add the show'.format(path=show_dir))
+                                       "Unable to create the folder {path}, can't add the show".format(path=show_dir))
                 # Don't redirect to default page because user wants to see the new show
                 return json_response(
                     result=False,
@@ -489,11 +494,11 @@ class HomeAddShows(Home):
         if whitelist:
             if not isinstance(whitelist, list):
                 whitelist = [whitelist]
-            whitelist = short_group_names(whitelist)
+            whitelist = short_group_names([ensure_text(w) for w in whitelist])
         if blacklist:
             if not isinstance(blacklist, list):
                 blacklist = [blacklist]
-            blacklist = short_group_names(blacklist)
+            blacklist = short_group_names([ensure_text(b) for b in blacklist])
 
         if not allowed_qualities:
             allowed_qualities = []
@@ -542,11 +547,7 @@ class HomeAddShows(Home):
         elif not isinstance(shows_to_add, list):
             shows_to_add = [shows_to_add]
 
-        shows_to_add = [
-            x.decode('utf-8') if not isinstance(x, text_type) else x
-            for x in shows_to_add
-        ]
-
+        shows_to_add = decode_shows(shows_to_add)
         prompt_for_settings = config.checkbox_to_value(prompt_for_settings)
 
         indexer_id_given = []

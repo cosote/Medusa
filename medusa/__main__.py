@@ -65,14 +65,18 @@ from builtins import str
 from configobj import ConfigObj
 
 from medusa import (
-    app, auto_post_processor, cache, db, event_queue, exception_handler,
-    helpers, logger as app_logger, metadata, name_cache, naming, network_timezones, providers,
-    scheduler, show_queue, show_updater, subtitles, torrent_checker, trakt_checker
+    app, cache, db, event_queue, exception_handler, helpers,
+    logger as app_logger, metadata, name_cache, naming,
+    network_timezones, process_tv, providers, scheduler,
+    show_queue, show_updater, subtitles, trakt_checker
 )
+from medusa.clients.torrent import torrent_checker
 from medusa.common import SD, SKIPPED, WANTED
 from medusa.config import (
-    CheckSection, ConfigMigrator, check_setting_bool, check_setting_float, check_setting_int, check_setting_list,
-    check_setting_str, load_provider_setting, save_provider_setting
+    CheckSection, ConfigMigrator, check_setting_bool,
+    check_setting_float, check_setting_int,
+    check_setting_list, check_setting_str,
+    load_provider_setting, save_provider_setting
 )
 from medusa.databases import cache_db, failed_db, main_db
 from medusa.event_queue import Events
@@ -263,7 +267,7 @@ class Application(object):
             if self.run_as_daemon:
                 pid_dir = os.path.dirname(self.pid_file)
                 if not os.access(pid_dir, os.F_OK):
-                    sys.exit('PID dir: %s doesn\'t exist. Exiting.' % pid_dir)
+                    sys.exit("PID dir: %s doesn't exist. Exiting." % pid_dir)
                 if not os.access(pid_dir, os.W_OK):
                     sys.exit('PID dir: %s must be writable (write permissions). Exiting.' % pid_dir)
 
@@ -314,14 +318,14 @@ class Application(object):
 
         app.CFG = ConfigObj(app.CONFIG_FILE, encoding='UTF-8', default_encoding='UTF-8')
 
-        # Initialize the config and our threads
-        self.initialize(console_logging=self.console_logging)
-
         if self.run_as_daemon:
             self.daemonize()
 
         # Get PID
         app.PID = os.getpid()
+
+        # Initialize the config and our threads
+        self.initialize(console_logging=self.console_logging)
 
         # Build from the DB to start with
         self.load_shows_from_db()
@@ -473,9 +477,20 @@ class Application(object):
 
             # current commit hash
             app.CUR_COMMIT_HASH = check_setting_str(app.CFG, 'General', 'cur_commit_hash', '')
+            # set current commit hash from environment variable, if needed
+            # use this to inject the commit hash information on immutable installations (e.g. Docker containers)
+            commit_hash_env = os.environ.get('MEDUSA_COMMIT_HASH')
+            if commit_hash_env and app.CUR_COMMIT_HASH != commit_hash_env:
+                app.CUR_COMMIT_HASH = commit_hash_env
 
             # current commit branch
             app.CUR_COMMIT_BRANCH = check_setting_str(app.CFG, 'General', 'cur_commit_branch', '')
+            # set current commit branch from environment variable, if needed
+            # use this to inject the branch information on immutable installations (e.g. Docker containers)
+            commit_branch_env = os.environ.get('MEDUSA_COMMIT_BRANCH')
+            if commit_branch_env and app.CUR_COMMIT_BRANCH != commit_branch_env:
+                app.CUR_COMMIT_BRANCH = commit_branch_env
+
             app.ACTUAL_CACHE_DIR = check_setting_str(app.CFG, 'General', 'cache_dir', 'cache')
 
             # fix bad configs due to buggy code
@@ -572,7 +587,6 @@ class Application(object):
             app.NAMING_CUSTOM_ANIME = bool(check_setting_int(app.CFG, 'General', 'naming_custom_anime', 0))
             app.NAMING_MULTI_EP = check_setting_int(app.CFG, 'General', 'naming_multi_ep', 1)
             app.NAMING_ANIME_MULTI_EP = check_setting_int(app.CFG, 'General', 'naming_anime_multi_ep', 1)
-            app.NAMING_FORCE_FOLDERS = naming.check_force_season_folders()
             app.NAMING_STRIP_YEAR = bool(check_setting_int(app.CFG, 'General', 'naming_strip_year', 0))
             app.USE_NZBS = bool(check_setting_int(app.CFG, 'General', 'use_nzbs', 0))
             app.USE_TORRENTS = bool(check_setting_int(app.CFG, 'General', 'use_torrents', 1))
@@ -731,6 +745,15 @@ class Application(object):
             app.TELEGRAM_ID = check_setting_str(app.CFG, 'Telegram', 'telegram_id', '', censor_log='normal')
             app.TELEGRAM_APIKEY = check_setting_str(app.CFG, 'Telegram', 'telegram_apikey', '', censor_log='low')
 
+            app.USE_DISCORD = bool(check_setting_int(app.CFG, 'Discord', 'use_discord', 0))
+            app.DISCORD_NOTIFY_ONSNATCH = bool(check_setting_int(app.CFG, 'Discord', 'discord_notify_onsnatch', 0))
+            app.DISCORD_NOTIFY_ONDOWNLOAD = bool(
+                check_setting_int(app.CFG, 'Discord', 'discord_notify_ondownload', 0))
+            app.DISCORD_NOTIFY_ONSUBTITLEDOWNLOAD = bool(
+                check_setting_int(app.CFG, 'Discord', 'discord_notify_onsubtitledownload', 0))
+            app.DISCORD_WEBHOOK = check_setting_str(app.CFG, 'Discord', 'discord_webhook', '', censor_log='normal')
+            app.DISCORD_TTS = check_setting_bool(app.CFG, 'Discord', 'discord_tts', 0)
+
             app.USE_PROWL = bool(check_setting_int(app.CFG, 'Prowl', 'use_prowl', 0))
             app.PROWL_NOTIFY_ONSNATCH = bool(check_setting_int(app.CFG, 'Prowl', 'prowl_notify_onsnatch', 0))
             app.PROWL_NOTIFY_ONDOWNLOAD = bool(check_setting_int(app.CFG, 'Prowl', 'prowl_notify_ondownload', 0))
@@ -884,9 +907,6 @@ class Application(object):
             app.ADDIC7ED_USER = check_setting_str(app.CFG, 'Subtitles', 'addic7ed_username', '', censor_log='normal')
             app.ADDIC7ED_PASS = check_setting_str(app.CFG, 'Subtitles', 'addic7ed_password', '', censor_log='low')
 
-            app.ITASA_USER = check_setting_str(app.CFG, 'Subtitles', 'itasa_username', '', censor_log='normal')
-            app.ITASA_PASS = check_setting_str(app.CFG, 'Subtitles', 'itasa_password', '', censor_log='low')
-
             app.LEGENDASTV_USER = check_setting_str(app.CFG, 'Subtitles', 'legendastv_username', '', censor_log='normal')
             app.LEGENDASTV_PASS = check_setting_str(app.CFG, 'Subtitles', 'legendastv_password', '', censor_log='low')
 
@@ -947,7 +967,6 @@ class Application(object):
             app.TIMEZONE_DISPLAY = check_setting_str(app.CFG, 'GUI', 'timezone_display', 'local')
             app.POSTER_SORTBY = check_setting_str(app.CFG, 'GUI', 'poster_sortby', 'name')
             app.POSTER_SORTDIR = check_setting_int(app.CFG, 'GUI', 'poster_sortdir', 1)
-            app.DISPLAY_ALL_SEASONS = bool(check_setting_int(app.CFG, 'General', 'display_all_seasons', 1))
             app.RECENTLY_DELETED = set()
             app.RELEASES_IN_PP = []
             app.GIT_REMOTE_BRANCHES = []
@@ -957,6 +976,7 @@ class Application(object):
             app.BACKLOG_STATUS = check_setting_str(app.CFG, 'General', 'backlog_status', 'all')
             app.LAYOUT_WIDE = check_setting_bool(app.CFG, 'GUI', 'layout_wide', 0)
             app.SHOW_LIST_ORDER = check_setting_list(app.CFG, 'GUI', 'show_list_order', app.SHOW_LIST_ORDER)
+            app.SHOW_USE_PAGINATION = check_setting_bool(app.CFG, 'GUI', 'show_use_pagination', app.SHOW_USE_PAGINATION)
 
             app.FALLBACK_PLEX_ENABLE = check_setting_int(app.CFG, 'General', 'fallback_plex_enable', 1)
             app.FALLBACK_PLEX_NOTIFICATIONS = check_setting_int(app.CFG, 'General', 'fallback_plex_notifications', 1)
@@ -969,6 +989,10 @@ class Application(object):
             try:
                 import pwd
                 app.OS_USER = pwd.getpwuid(os.getuid()).pw_name
+            except KeyError:
+                # In the case of a usage with Docker run `user` feature, the username might not exist.
+                # See: https://docs.docker.com/engine/reference/run/#user
+                app.OS_USER = os.getuid()
             except ImportError:
                 try:
                     import getpass
@@ -991,8 +1015,6 @@ class Application(object):
                 updater = CheckVersion().updater
                 if updater:
                     app.APP_VERSION = updater.current_version
-
-            app.MAJOR_DB_VERSION, app.MINOR_DB_VERSION = db.DBConnection().checkDBVersion()
 
             # initialize the static NZB and TORRENT providers
             app.providerList = providers.make_provider_list()
@@ -1109,6 +1131,11 @@ class Application(object):
             main_db_con = db.DBConnection()
             db.sanityCheckDatabase(main_db_con, main_db.MainSanityCheck)
 
+            app.MAJOR_DB_VERSION, app.MINOR_DB_VERSION = main_db_con.checkDBVersion()
+
+            # checks that require DB existence
+            app.NAMING_FORCE_FOLDERS = naming.check_force_season_folders()
+
             # migrate the config if it needs it
             migrator = ConfigMigrator(app.CFG)
             migrator.migrate_config()
@@ -1184,11 +1211,11 @@ class Application(object):
 
             # processors
             update_interval = datetime.timedelta(minutes=app.AUTOPOSTPROCESSOR_FREQUENCY)
-            app.auto_post_processor_scheduler = scheduler.Scheduler(auto_post_processor.PostProcessor(),
-                                                                    cycleTime=update_interval,
-                                                                    threadName='POSTPROCESSOR',
-                                                                    silent=not app.PROCESS_AUTOMATICALLY,
-                                                                    run_delay=update_interval)
+            app.post_processor_scheduler = scheduler.Scheduler(process_tv.PostProcessorRunner(),
+                                                               cycleTime=update_interval,
+                                                               threadName='POSTPROCESSOR',
+                                                               silent=not app.PROCESS_AUTOMATICALLY,
+                                                               run_delay=update_interval)
             update_interval = datetime.timedelta(minutes=5)
             app.trakt_checker_scheduler = scheduler.Scheduler(trakt_checker.TraktChecker(),
                                                               cycleTime=datetime.timedelta(hours=1),
@@ -1326,12 +1353,12 @@ class Application(object):
 
             # start the post processor
             if app.PROCESS_AUTOMATICALLY:
-                app.auto_post_processor_scheduler.silent = False
-                app.auto_post_processor_scheduler.enable = True
+                app.post_processor_scheduler.silent = False
+                app.post_processor_scheduler.enable = True
             else:
-                app.auto_post_processor_scheduler.enable = False
-                app.auto_post_processor_scheduler.silent = True
-            app.auto_post_processor_scheduler.start()
+                app.post_processor_scheduler.enable = False
+                app.post_processor_scheduler.silent = True
+            app.post_processor_scheduler.start()
 
             # start the subtitles finder
             if app.USE_SUBTITLES:
@@ -1376,7 +1403,7 @@ class Application(object):
                 app.search_queue_scheduler,
                 app.forced_search_queue_scheduler,
                 app.manual_snatch_scheduler,
-                app.auto_post_processor_scheduler,
+                app.post_processor_scheduler,
                 app.trakt_checker_scheduler,
                 app.proper_finder_scheduler,
                 app.subtitles_finder_scheduler,
@@ -1572,7 +1599,6 @@ class Application(object):
         new_config['General']['no_restart'] = int(app.NO_RESTART)
         new_config['General']['developer'] = int(app.DEVELOPER)
         new_config['General']['python_version'] = app.PYTHON_VERSION
-        new_config['General']['display_all_seasons'] = int(app.DISPLAY_ALL_SEASONS)
         new_config['General']['news_last_read'] = app.NEWS_LAST_READ
         new_config['General']['broken_providers'] = helpers.get_broken_providers() or app.BROKEN_PROVIDERS
         new_config['General']['selected_root'] = int(app.SELECTED_ROOT)
@@ -1733,6 +1759,14 @@ class Application(object):
         new_config['Telegram']['telegram_notify_onsubtitledownload'] = int(app.TELEGRAM_NOTIFY_ONSUBTITLEDOWNLOAD)
         new_config['Telegram']['telegram_id'] = app.TELEGRAM_ID
         new_config['Telegram']['telegram_apikey'] = app.TELEGRAM_APIKEY
+
+        new_config['Discord'] = {}
+        new_config['Discord']['use_discord'] = int(app.USE_DISCORD)
+        new_config['Discord']['discord_notify_onsnatch'] = int(app.DISCORD_NOTIFY_ONSNATCH)
+        new_config['Discord']['discord_notify_ondownload'] = int(app.DISCORD_NOTIFY_ONDOWNLOAD)
+        new_config['Discord']['discord_notify_onsubtitledownload'] = int(app.DISCORD_NOTIFY_ONSUBTITLEDOWNLOAD)
+        new_config['Discord']['discord_webhook'] = app.DISCORD_WEBHOOK
+        new_config['Discord']['discord_tts'] = int(app.DISCORD_TTS)
 
         new_config['Prowl'] = {}
         new_config['Prowl']['use_prowl'] = int(app.USE_PROWL)
@@ -1902,6 +1936,7 @@ class Application(object):
         new_config['GUI']['poster_sortdir'] = app.POSTER_SORTDIR
         new_config['GUI']['layout_wide'] = app.LAYOUT_WIDE
         new_config['GUI']['show_list_order'] = app.SHOW_LIST_ORDER
+        new_config['GUI']['show_use_pagination'] = app.SHOW_USE_PAGINATION
 
         new_config['Subtitles'] = {}
         new_config['Subtitles']['use_subtitles'] = int(app.USE_SUBTITLES)
@@ -1924,9 +1959,6 @@ class Application(object):
         new_config['Subtitles']['subtitles_keep_only_wanted'] = int(app.SUBTITLES_KEEP_ONLY_WANTED)
         new_config['Subtitles']['addic7ed_username'] = app.ADDIC7ED_USER
         new_config['Subtitles']['addic7ed_password'] = helpers.encrypt(app.ADDIC7ED_PASS, app.ENCRYPTION_VERSION)
-
-        new_config['Subtitles']['itasa_username'] = app.ITASA_USER
-        new_config['Subtitles']['itasa_password'] = helpers.encrypt(app.ITASA_PASS, app.ENCRYPTION_VERSION)
 
         new_config['Subtitles']['legendastv_username'] = app.LEGENDASTV_USER
         new_config['Subtitles']['legendastv_password'] = helpers.encrypt(app.LEGENDASTV_PASS, app.ENCRYPTION_VERSION)

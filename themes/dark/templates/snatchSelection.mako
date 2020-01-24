@@ -10,9 +10,16 @@
 <div>
     <input type="hidden" id="series-id" value="${show.indexerid}" />
     <input type="hidden" id="series-slug" value="${show.slug}" />
+
+    <backstretch slug="${show.slug}"></backstretch>
+
     <div class="clearfix"></div><!-- div.clearfix //-->
 
-    <%include file="/partials/showheader.mako"/>
+    <show-header @reflow="reflowLayout" type="snatch-selection"
+        :show-id="id" :show-indexer="indexer"
+        :show-season="season" :show-episode="episode"
+        manual-search-type="${manual_search_type}"
+    ></show-header>
 
     <div class="row">
         <div class="col-md-12 horizontal-scroll">
@@ -112,7 +119,7 @@
                         % for hItem in provider_results['found_items']:
                             <tr id="${hItem['name'] | h}" class="skipped season-${season} seasonstyle ${hItem['status_highlight']}" role="row">
                                 <td class="release-name-ellipses triggerhighlight">
-                                    <span data-qtip-my="top left" data-qtip-at="bottom left" title="${hItem['name'] | h}" class="break-word ${hItem['name_highlight']} addQTip">${hItem['name'] | h}</span>
+                                    <span v-pre data-qtip-my="top left" data-qtip-at="bottom left" :class="getReleaseNameClasses(`${hItem['name']}`)" title="${hItem['name'] | h}" class="break-word ${hItem['name_highlight']} addQTip">${hItem['name'] | h}</span>
                                 </td>
                                 <td class="col-group break-word triggerhighlight">
                                     <span class="break-word ${hItem['rg_highlight']}">${hItem['release_group']}</span>
@@ -171,7 +178,7 @@ window.app = new Vue({
     data() {
         return {
             // This loads snatch-selection.vue
-            pageComponent: 'snatchSelection'
+            pageComponent: 'snatch-selection'
         }
     }
 });
