@@ -2612,8 +2612,9 @@ bootstrap Overrides
 
 body {
     overflow-y: scroll;
-    font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    /*font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;*/
     color: rgb(0, 0, 0);
+	font-size: 1.25em !important;
 }
 
 html * {
