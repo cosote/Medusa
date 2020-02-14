@@ -774,9 +774,11 @@ HD = Quality.combine_qualities([HD720p, HD1080p], [])
 UHD = Quality.combine_qualities([UHD_4K, UHD_8K], [])
 ANY = Quality.combine_qualities([SD, HD, UHD], [])
 
+SD_HD720p = Quality.combine_qualities([SD, HD720p], [])
+
 qualityPresets = (
     ANY,
-    SD,
+    SD, SD_HD720p,
     HD, HD720p, HD1080p,
     UHD, UHD_4K, UHD_8K,
 )
@@ -784,6 +786,7 @@ qualityPresets = (
 qualityPresetStrings = {
     SD: 'SD',
     HD: 'HD',
+	SD_HD720p: 'SD+HD720p',
     HD720p: 'HD720p',
     HD1080p: 'HD1080p',
     UHD: 'UHD',
