@@ -445,7 +445,6 @@ class MedusaApp(object):
         self.NMJ_DATABASE = None
         self.NMJ_MOUNT = None
 
-        self.ANIMESUPPORT = False
         self.USE_ANIDB = False
         self.ANIDB_USERNAME = None
         self.ANIDB_PASSWORD = None
@@ -453,6 +452,7 @@ class MedusaApp(object):
         self.ADBA_CONNECTION = None
         self.ANIME_SPLIT_HOME = False
         self.ANIME_SPLIT_HOME_IN_TABS = False
+        self.AUTO_ANIME_TO_LIST = False
 
         self.USE_SYNOINDEX = False
 
@@ -673,7 +673,7 @@ class MedusaApp(object):
         self.FALLBACK_PLEX_NOTIFICATIONS = True
         self.FALLBACK_PLEX_TIMEOUT = 3
         self.FALLBACK_PLEX_API_URL = 'https://tvdb2.plex.tv'
-        self.TVDB_API_KEY = '0629B785CE550C8D'
+        self.TVDB_API_KEY = 'd99c8e7dac2307355af4ab88720a6c32'
 
 
 app = MedusaApp()

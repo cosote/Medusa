@@ -69,14 +69,18 @@
 
                                     <config-toggle-slider v-show="search.general.failedDownloads.enabled" v-model="search.general.failedDownloads.deleteFailed" label="Delete Failed" id="delete_failed">
                                         Delete files left over from a failed download?<br>
-                                        <b>NOTE:</b> This only works if Use Failed Downloads is enabled.
+                                        <b>Note:</b> This only works if Use Failed Downloads is enabled.
                                     </config-toggle-slider>
 
                                     <config-toggle-slider v-model="search.general.cacheTrimming" label="Cache Trimming" id="cache_trimming" :explanations="['Enable trimming of provider cache']" />
 
                                     <config-textbox-number v-show="search.general.cacheTrimming" :min="1" :step="1" v-model.number="search.general.maxCacheAge" label="Cache Retention" id="max_cache_age" :explanations="['Number of days to retain results in cache.  Results older than this will be removed if cache trimming is enabled.']" />
 
-                                    <input type="submit" class="btn-medusa config_submitter" value="Save Changes">
+                                    <input type="submit"
+                                           class="btn-medusa config_submitter"
+                                           value="Save Changes"
+                                           :disabled="saving"
+                                    >
                                 </fieldset>
                             </div><!-- /general settings //-->
                         </div><!-- /row -->
@@ -117,7 +121,11 @@
 
                                     <config-toggle-slider v-model="search.filters.ignoreUnknownSubs" label="Ignore unknown subbed releases" id="ignore_und_subs" :explanations="['Ignore subbed releases without language names', 'Filter words: subbed, subpack, subbed, subs, etc.)']" />
 
-                                    <input type="submit" class="btn-medusa config_submitter" value="Save Changes">
+                                    <input type="submit"
+                                           class="btn-medusa config_submitter"
+                                           value="Save Changes"
+                                           :disabled="saving"
+                                    >
                                 </fieldset>
                             </div><!-- /col //-->
                         </div><!-- /row //-->
@@ -167,13 +175,18 @@
 
                                             <div class="testNotification" v-show="clientsConfig.nzb.sabnzbd.testStatus" v-html="clientsConfig.nzb.sabnzbd.testStatus" />
                                             <input @click="testSabnzbd" type="button" value="Test SABnzbd" class="btn-medusa test-button">
-                                            <input type="submit" class="btn-medusa config_submitter" value="Save Changes"><br>
+                                            <input type="submit"
+                                                   class="btn-medusa config_submitter"
+                                                   value="Save Changes"
+                                                   :disabled="saving"
+                                            >
+                                            <br>
                                         </div>
 
                                         <div v-if="clients.nzb.method" v-show="clients.nzb.method === 'nzbget'" id="nzbget_settings">
 
                                             <config-toggle-slider v-model="clients.nzb.nzbget.useHttps" label="Connect using HTTPS" id="nzbget_use_https">
-                                                <p><b>note:</b> enable Secure control in NZBGet and set the correct Secure Port here</p>
+                                                <p><b>Note:</b> enable Secure control in NZBGet and set the correct Secure Port here</p>
                                             </config-toggle-slider>
 
                                             <config-textbox v-model="clients.nzb.nzbget.host" label="NZBget host:port" id="nzbget_host">
@@ -196,7 +209,12 @@
 
                                             <div class="testNotification" v-show="clientsConfig.nzb.nzbget.testStatus" v-html="clientsConfig.nzb.nzbget.testStatus" />
                                             <input @click="testNzbget" type="button" value="Test NZBget" class="btn-medusa test-button">
-                                            <input type="submit" class="btn-medusa config_submitter" value="Save Changes"><br>
+                                            <input type="submit"
+                                                   class="btn-medusa config_submitter"
+                                                   value="Save Changes"
+                                                   :disabled="saving"
+                                            >
+                                            <br>
                                         </div><!-- /nzb.enabled //-->
                                     </div>
                                 </fieldset>
@@ -228,7 +246,12 @@
                                                 <file-browser name="torrent_dir" title="Select .torrent black hole location" :initial-dir="clients.torrents.dir" @update="clients.torrents.dir = $event" />
                                                 <p><b>.torrent</b> files are stored at this location for external software to find and use</p>
                                             </config-template>
-                                            <input type="submit" class="btn-medusa config_submitter" value="Save Changes"><br>
+                                            <input type="submit"
+                                                   class="btn-medusa config_submitter"
+                                                   value="Save Changes"
+                                                   :disabled="saving"
+                                            >
+                                            <br>
                                         </div>
 
                                         <div v-if="clients.torrents.method" v-show="clients.torrents.method !== 'blackhole'">
@@ -262,10 +285,10 @@
                                                 <config-textbox v-model="clients.torrents.label" label="Add label to torrent" id="torrent_label">
                                                     <span v-show="['deluge', 'deluged'].includes(clients.torrents.method)">
                                                         <p>(blank spaces are not allowed)</p>
-                                                        <p>note: label plugin must be enabled in Deluge clients</p>
+                                                        <p><b>Note:</b> label plugin must be enabled in Deluge clients</p>
                                                     </span>
                                                     <span v-show="clients.torrents.method === 'qbittorrent'"><p>(blank spaces are not allowed)</p>
-                                                        <p>note: for qBitTorrent 3.3.1 and up</p>
+                                                        <p><b>Note:</b> for qBitTorrent 3.3.1 and up</p>
                                                     </span>
                                                     <span v-show="clients.torrents.method === 'utorrent'">
                                                         <p>Global label for torrents.<br>
@@ -278,11 +301,11 @@
                                                 <config-textbox v-model="clients.torrents.labelAnime" label="Add label to torrent for anime" id="torrent_label_anime">
                                                     <span v-show="['deluge', 'deluged'].includes(clients.torrents.method)">
                                                         <p>(blank spaces are not allowed)</p>
-                                                        <p>note: label plugin must be enabled in Deluge clients</p>
+                                                        <p><b>Note:</b> label plugin must be enabled in Deluge clients</p>
                                                     </span>
                                                     <span v-show="clients.torrents.method === 'qbittorrent'">
                                                         <p>(blank spaces are not allowed)</p>
-                                                        <p>note: for qBitTorrent 3.3.1 and up</p>
+                                                        <p><b>Note:</b> for qBitTorrent 3.3.1 and up</p>
                                                     </span>
                                                     <span v-show="clients.torrents.method === 'utorrent'">
                                                         <p>Global label for torrents.<br>
@@ -294,8 +317,11 @@
                                             <config-template v-show="clientsConfig.torrent[clients.torrents.method].pathOption" label-for="torrent_client" label="Downloaded files location">
                                                 <file-browser name="torrent_path" title="Select downloaded files location" :initial-dir="clients.torrents.path" @update="clients.torrents.path = $event" />
                                                 <p>where <span id="torrent_client" v-if="clientsConfig.torrent[clients.torrents.method]">{{clientsConfig.torrent[clients.torrents.method].shortTitle || clientsConfig.torrent[clients.torrents.method].title}}</span> will save downloaded files (blank for client default)
-                                                    <span v-show="clients.torrents.method === 'downloadstation'"> <b>note:</b> the destination has to be a shared folder for Synology DS</span>
+                                                    <span v-show="clients.torrents.method === 'downloadstation'"> <b>Note:</b> the destination has to be a shared folder for Synology DS</span>
                                                 </p>
+                                                <span v-show="clients.torrents.method === 'qbittorrent'">
+                                                    <p><b>Note:</b> for qBitTorrent 3.2.0 and up</p>
+                                                </span>
                                             </config-template>
 
                                             <config-template v-show="clientsConfig.torrent[clients.torrents.method].seedLocationOption" label-for="torrent_seed_location" label="Post-Processed seeding torrents location">
@@ -318,7 +344,12 @@
 
                                             <div class="testNotification" v-show="clientsConfig.torrent[clients.torrents.method].testStatus" v-html="clientsConfig.torrent[clients.torrents.method].testStatus" />
                                             <input @click="testTorrentClient" type="button" value="Test Connection" class="btn-medusa test-button">
-                                            <input type="submit" class="btn-medusa config_submitter" value="Save Changes"><br>
+                                            <input type="submit"
+                                                   class="btn-medusa config_submitter"
+                                                   value="Save Changes"
+                                                   :disabled="saving"
+                                            >
+                                            <br>
                                         </div>
                                     </div><!-- /torrent.enabled //-->
                                 </fieldset>
@@ -327,7 +358,11 @@
                     </div><!-- /#torrent-search //-->
                     <br>
                     <h6 class="pull-right"><b>All non-absolute folder locations are relative to <span class="path">{{system.dataDir}}</span></b> </h6>
-                    <input type="submit" class="btn-medusa pull-left config_submitter button" value="Save Changes">
+                    <input type="submit"
+                           class="btn-medusa config_submitter"
+                           value="Save Changes"
+                           :disabled="saving"
+                    >
                 </div><!-- /config-components //-->
             </form>
         </div>
@@ -447,6 +482,7 @@ export default {
                     qbittorrent: {
                         title: 'qBittorrent',
                         description: 'URL to your qBittorrent client (e.g. http://localhost:8080)',
+                        pathOption: true,
                         labelOption: true,
                         labelAnimeOption: true,
                         pausedOption: true,
@@ -480,15 +516,16 @@ export default {
                 none: 'None',
                 basic: 'Basic',
                 digest: 'Digest'
-            }
+            },
+            saving: false
         };
     },
     computed: {
-        ...mapState([
-            'clients',
-            'search',
-            'system'
-        ]),
+        ...mapState({
+            clients: state => state.config.clients,
+            search: state => state.config.search,
+            system: state => state.config.system
+        }),
         torrentUsernameIsDisabled() {
             const { clients } = this;
             const { torrents } = clients;
@@ -535,7 +572,7 @@ export default {
             const { torrents } = clients;
             const { method, host, username, password } = torrents;
 
-            this.clientsConfig.torrent[method].testStatus = MEDUSA.config.loading;
+            this.clientsConfig.torrent[method].testStatus = MEDUSA.config.layout.loading;
 
             const params = {
                 torrent_method: method, // eslint-disable-line camelcase
@@ -553,7 +590,7 @@ export default {
             const { nzbget } = nzb;
             const { host, username, password, useHttps } = nzbget;
 
-            this.clientsConfig.nzb.nzbget.testStatus = MEDUSA.config.loading;
+            this.clientsConfig.nzb.nzbget.testStatus = MEDUSA.config.layout.loading;
 
             const params = {
                 host,
@@ -571,7 +608,7 @@ export default {
             const { sabnzbd } = nzb;
             const { host, username, password, apiKey } = sabnzbd;
 
-            this.clientsConfig.nzb.sabnzbd.testStatus = MEDUSA.config.loading;
+            this.clientsConfig.nzb.sabnzbd.testStatus = MEDUSA.config.layout.loading;
 
             const params = {
                 host,
