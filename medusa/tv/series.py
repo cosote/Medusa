@@ -3,10 +3,10 @@
 """Series classes."""
 from __future__ import unicode_literals
 
-import ast
 import copy
 import datetime
 import glob
+import json
 import logging
 import os.path
 import shutil
@@ -85,7 +85,7 @@ from medusa.indexers.utils import (
     reverse_mappings,
     slug_to_indexer_id
 )
-from medusa.logger.adapters.style import BraceAdapter
+from medusa.logger.adapters.style import CustomBraceAdapter
 from medusa.media.banner import ShowBanner
 from medusa.media.fan_art import ShowFanArt
 from medusa.media.network_logo import ShowNetworkLogo
@@ -125,7 +125,7 @@ except ImportError:
 
 MILLIS_YEAR_1900 = datetime.datetime(year=1900, month=1, day=1).toordinal()
 
-log = BraceAdapter(logging.getLogger(__name__))
+log = CustomBraceAdapter(logging.getLogger(__name__))
 log.logger.addHandler(logging.NullHandler())
 
 
@@ -373,7 +373,6 @@ class Series(TV):
     @property
     def network_logo_name(self):
         """Get the network logo name."""
-
         def sanitize_network_names(str):
             dict = ({
                     u'\u010C': 'C',  # Č
@@ -665,6 +664,7 @@ class Series(TV):
         } for alias in self.aliases]
 
     @property
+    @ttl_cache(25200.0)  # Caching as this is requested for the /home page.
     def xem_numbering(self):
         """Return series episode xem numbering."""
         return get_xem_numbering_for_show(self, refresh_data=False)
@@ -1481,7 +1481,7 @@ class Series(TV):
             self.sports = int(sql_results[0]['sports'] or 0)
             self.scene = int(sql_results[0]['scene'] or 0)
             self.subtitles = int(sql_results[0]['subtitles'] or 0)
-            self.notify_list = dict(ast.literal_eval(sql_results[0]['notify_list'] or '{}'))
+            self.notify_list = json.loads(sql_results[0]['notify_list'] or '{}')
             self.dvd_order = int(sql_results[0]['dvdorder'] or 0)
             self.quality = int(sql_results[0]['quality'] or Quality.NA)
             self.season_folders = int(not (sql_results[0]['flatten_folders'] or 0))  # TODO: Rename this in the DB
@@ -2026,6 +2026,7 @@ class Series(TV):
                           'scene': self.scene,
                           'sports': self.sports,
                           'subtitles': self.subtitles,
+                          'notify_list': json.dumps(self.notify_list),
                           'dvdorder': self.dvd_order,
                           'startyear': self.start_year,
                           'lang': self.lang,
@@ -2127,7 +2128,6 @@ class Series(TV):
         data['network'] = self.network  # e.g. CBS
         data['type'] = self.classification  # e.g. Scripted
         data['status'] = self.status  # e.g. Continuing
-        data['seasonCount'] = dict_to_array(self.get_all_seasons(), key='season', value='episodeCount')
         data['airs'] = self.airs  # e.g. Thursday 8:00 PM
         data['airsFormatValid'] = network_timezones.test_timeformat(self.airs)
         data['language'] = self.lang
@@ -2199,6 +2199,7 @@ class Series(TV):
             if self.is_scene:
                 data['xemAbsoluteNumbering'] = dict_to_array(self.xem_absolute_numbering, key='absolute', value='sceneAbsolute')
                 data['sceneNumbering'] = numbering_tuple_to_dict(self.scene_numbering)
+            data['seasonCount'] = dict_to_array(self.get_all_seasons(), key='season', value='episodeCount')
 
         if episodes:
             all_episodes = self.get_all_episodes()
